@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VIX · settimanale</title>
+<style>
+:root{color-scheme:dark;--bg:#09111f;--panel:#142238;--line:#2b3d55;--text:#eef5ff;--muted:#9aadc8;--blue:#6baaff;--green:#4bddb4}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(135deg,#122541,#09111f 55%);color:var(--text);font:14px system-ui,sans-serif;min-height:100vh}
+main{max-width:1200px;margin:auto;padding:22px 14px}
+header,.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:25px;margin:0}h1 em{font-style:normal;color:var(--blue)}h2{font-size:16px;margin:0 0 12px}
+.muted{color:var(--muted)}.small{font-size:12px}
+header{margin-bottom:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.card,.panel{background:#142238e8;border:1px solid var(--line);border-radius:14px;padding:14px}
+.card label{color:var(--muted);font-size:12px;display:block}
+.big{font-size:22px;font-weight:750;margin-top:6px;overflow-wrap:anywhere}
+.sub{color:var(--muted);font-size:12px;font-weight:400;margin-top:3px}
+.panel{margin-top:14px}
+button{font:inherit;border:1px solid var(--line);border-radius:9px;padding:9px 12px;background:#0c192b;color:var(--text);cursor:pointer}
+button:hover{border-color:var(--blue)}button.primary{background:#256bc4}button:disabled{opacity:.5}
+button.on{border-color:var(--blue);background:#1b3a63}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+canvas{width:100%;height:500px;display:block;touch-action:pan-y;border-radius:10px;background:#0c192b}
+#tip{min-height:20px;margin-top:8px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.tablebox{overflow:auto;border:1px solid var(--line);border-radius:10px}
+table{width:100%;border-collapse:collapse;min-width:640px}
+th,td{padding:9px 10px;border-bottom:1px solid #223650;text-align:left;white-space:nowrap}
+th{color:var(--muted);font-weight:600;font-size:12px;position:sticky;top:0;background:#142238}
+tr.sec td{color:var(--blue);font-weight:650;font-size:12px;background:#10203a;padding-top:12px}
+tr.sec td span{position:sticky;left:10px;display:inline-block}
+thead th:first-child{left:0;z-index:2}
+#stats tr:not(.sec) td:first-child{position:sticky;left:0;z-index:1;background:#142238;white-space:normal;min-width:150px;max-width:180px}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.pos{color:var(--green)}.neg{color:#ff8a8a}
+.note{color:var(--muted);line-height:1.5}
+.warn{color:#ffd37a}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:650;color:#04121f}
+@media(max-width:600px){canvas{height:440px}h1{font-size:21px}header .row{gap:8px;justify-content:flex-start}header .row button{padding:9px 10px}}
+@media(max-width:370px){header .row button{padding:8px;font-size:13px}}
+#osu{height:380px;touch-action:auto;background:#0a1424}
+@media(max-width:600px){#osu{height:340px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <div><h1>VIX <em>settimanale</em></h1><div class="muted small" id="src">Caricamento…</div></div>
+ <div class="row"><button id="csv" disabled>Esporta CSV</button><button id="share" disabled hidden>Condividi CSV</button><button id="reload" class="primary">Ricarica dati</button></div>
+</header>
+
+<section class="grid" id="cards"></section>
+
+<section class="panel">
+ <div class="row" style="margin-bottom:10px"><h2 style="margin:0">Grafico</h2>
+  <div class="seg" id="ranges"><button data-n="52">1 anno</button><button data-n="104" class="on">2 anni</button><button data-n="260">5 anni</button><button data-n="100000">Tutto</button></div></div>
+ <canvas id="cv"></canvas>
+ <div id="tip" class="muted small">Tocca o passa sul grafico per leggere i valori di una settimana.</div>
+ <div class="legend">
+  <span><i style="background:#eef5ff"></i>VIX</span>
+  <span><i style="background:#5d86c0"></i>Bande di Bollinger (20 sett., 2 dev. std)</span>
+  <span><i style="background:#ffd37a"></i>VIX = 30 · VIX/VIX3M = 1</span>
+  <span><i style="background:#c9a7ff"></i>VIX/VIX3M (rosso sopra 1)</span>
+  <span><i style="background:#00e5ff"></i>Istogramma &gt;0 in crescita</span>
+  <span><i style="background:#2f6bff"></i>&gt;0 in calo</span>
+  <span><i style="background:#ff4d4d"></i>≤0 in calo</span>
+  <span><i style="background:#b3394a"></i>≤0 in crescita</span>
+  <span><i style="background:#7CFC00"></i>MACD sopra Signal</span>
+  <span><i style="background:#ff4d4d"></i>MACD sotto Signal</span>
+  <span><i style="background:#ffe14d"></i>Signal (SMA 9)</span>
+ </div>
+</section>
+
+<section class="panel">
+ <div class="row" style="margin-bottom:10px"><h2 style="margin:0">Il VIX come l’UR di osu!</h2>
+  <div class="seg" id="simWeeks"><button data-k="last" data-label="Ultima settimana" class="on">Ultima</button><button data-k="chill" data-label="Chill: la settimana con il VIX più basso">Chill</button><button data-k="norm" data-label="Normale: l’ultima settimana con VIX intorno a 20">Normale</button><button data-k="death" data-label="Death stream: l’ultima settimana con VIX sopra 30">Death stream</button><button data-k="mash" data-label="Mashing: la settimana con il VIX più alto">Mashing</button><button id="simPlay">Pausa</button></div></div>
+ <canvas id="osu"></canvas>
+ <div id="simInfo" class="muted small" style="margin-top:8px"></div>
+ <p class="note small">Come funziona: 1 punto di VIX = 1 ms di errore tipico, quindi l’UR atteso è VIX × 10. I colpi vengono estratti con l’errore della volatilità realizzata dell’S&amp;P (20 sedute): di solito la play fa un UR più basso di quello atteso, e la differenza è il premio di varianza. Il premio si vede in due punti: nelle due barre in alto, dove il pezzo in più è dorato se la lobby ha esagerato e rosso se ha sottovalutato (la lineetta bianca è l’UR misurato dal vivo sui colpi), e sulla barra degli errori, tra la parentesi bianca (±VIX ms, la scommessa) e quella azzurra (±volatilità realizzata ms, la play). Più alto il VIX, più fitto il ritmo e più larghi i salti. I break compaiono solo con VIX sotto 25 e VIX/VIX3M non sopra 1. La striscia in alto confronta la sezione attuale (VIX, 30 giorni) con la media della mappa (VIX3M, 3 mesi). Giudizi con le finestre di OD 8: ±32, ±76 e ±120 ms. Tocca una settimana nel grafico sopra per giocarla.</p>
+</section>
+
+<section class="panel">
+ <h2>Come si legge (VIX)</h2>
+ <div class="note" id="howto">
+  <b>Istogramma aqua</b>: il momentum del VIX è positivo e sta crescendo → stress in accelerazione.<br>
+  <b>Istogramma blu</b>: ancora positivo ma in calo → l’accelerazione si sta esaurendo (primo possibile avviso).<br>
+  <b>Incrocio MACD sotto Signal</b>: il momentum del VIX gira al ribasso → pressione in attenuazione.<br>
+  <b>Rosso / marrone sotto zero</b>: VIX in compressione; il marrone (≤0 e in crescita) segnala che la compressione sta finendo.<br>
+  <b>VIX sopra 30 o balzo di almeno il 30% in una settimana</b>: stress elevato.<br>
+  <b>Banda di Bollinger alta</b>: il VIX è insolitamente alto rispetto alle ultime 20 settimane; il rientro sotto la banda indica che il picco si sta sgonfiando.<br>
+  <b>Percentile 52 settimane</b>: 100 = VIX al massimo dell’ultimo anno, 0 = al minimo.<br>
+  <b>VIX/VIX3M sopra 1</b>: la volatilità attesa a un mese supera quella a tre mesi (struttura invertita), tipico dello stress acuto; il ritorno sotto 1 indica che la fase acuta si sta chiudendo.<br>
+  Sono letture interpretative: la tabella sotto mostra cosa è successo dopo all’S&amp;P 500 nello storico disponibile.
+ </div>
+</section>
+
+<section class="panel">
+ <h2>Verifica storica sull’S&amp;P 500</h2>
+ <div class="note small" style="margin-bottom:10px" id="statNote"></div>
+ <div class="tablebox"><table>
+  <thead><tr><th>Gruppo</th><th>Settimane</th><th>Indip. (4s)</th><th>SPX +1s</th><th>SPX +4s</th><th>SPX +13s</th><th>% &gt;0 (4s)</th><th>t vs base (4s indip.)</th></tr></thead>
+  <tbody id="stats"></tbody></table></div>
+ <p class="note small">Rendimenti dell’S&amp;P 500 a 1, 4 e 13 settimane dalla chiusura della settimana del segnale (solo barre chiuse). «Indip.» = eventi distanti ≥ 4 settimane. Il t-stat usa solo quelli e li confronta con la media della base, non con zero: dice se dopo il segnale l’S&amp;P fa meglio o peggio del solito. I gruppi VIX/VIX3M sono confrontati con la base delle sole settimane in cui il VIX3M esiste. Con 20 gruppi testati, conta solo un |t| sopra 3,5 circa con almeno 15 eventi indipendenti. Nessun costo, nessun test fuori campione.</p>
+</section>
+
+<section class="panel note small">
+ <b>Metodo.</b> MACD: replica di CM_MacD_Ult_MTF (ChrisMoody) su barre settimanali del VIX: EMA 12 e 26 sulla chiusura, Signal = <b>media semplice</b> a 9 periodi del MACD, istogramma = MACD − Signal, colori dell’istogramma come nello script originale; le prime 34 barre sono scartate per il riscaldamento degli EMA. Bande di Bollinger: media semplice a 20 settimane ± 2 deviazioni standard della popolazione (come ta.stdev di TradingView). Percentile: quota delle 52 settimane precedenti con VIX minore o uguale (come ta.percentrank). VIX/VIX3M: rapporto tra le chiusure settimanali di ^VIX e ^VIX3M, che esiste dal 2007 circa. Volatilità realizzata: deviazione standard delle ultime 20 variazioni giornaliere (logaritmiche) dell’S&amp;P 500, annualizzata con √252, all’ultima seduta della settimana; premio di varianza = VIX − volatilità realizzata. La barra della settimana in corso è provvisoria.<br>
+ <b>CSV.</b> Contiene ogni serie, indicatore, stato ed evento calcolato dalla pagina, uno per colonna: 0/1 per stati ed eventi, vuoto se l’indicatore non è disponibile; «valida» = settimana usata nelle statistiche. Dati: Yahoo Finance tramite il tuo Worker (^VIX, ^VIX3M, ^GSPC settimanale e giornaliero).
+</section>
+</main>
+
+<script>
+const BASE='https://icy-sea-ec77.alessiostanca3.workers.dev';
+const $=id=>document.getElementById(id);
+const fmt=(v,d=2)=>Number.isFinite(v)?new Intl.NumberFormat('it-IT',{minimumFractionDigits:d,maximumFractionDigits:d}).format(v):'—';
+const sgn=(v,d=2)=>Number.isFinite(v)?(v>0?'+':'')+fmt(v,d):'—';
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+//--PURE-START--
+const WARM=34; // 26 (EMA lenta) + 9 (signal) - 1
+const BB_LEN=20,BB_K=2,PCT_LEN=52; // Bollinger 20 settimane ± 2 dev. std; percentile sulle 52 settimane precedenti
+const COLORS={aqua:'#00e5ff',blue:'#2f6bff',red:'#ff4d4d',maroon:'#b3394a',yellow:'#ffe14d'};
+const COLNAME={aqua:'AQUA · >0 in crescita',blue:'BLU · >0 in calo',red:'ROSSO · ≤0 in calo',maroon:'MARRONE · ≤0 in crescita',yellow:'GIALLO · invariato'};
+const EVNAME={crossDn:'Incrocio MACD sotto Signal',crossUp:'Incrocio MACD sopra Signal',blueFirst:'Prima settimana blu',redFirst:'Prima settimana rossa',zeroDn:'MACD scende sotto zero',zeroUp:'MACD sale sopra zero',
+ vix30:'VIX ≥ 30 (prima settimana)',balzo30:'Balzo del VIX ≥ +30% in una settimana',bandaSu:'VIX sopra la banda alta (prima settimana)',bandaRientro:'VIX rientra sotto la banda alta',bandaGiu:'VIX sotto la banda bassa (prima settimana)',
+ backwOn:'VIX/VIX3M sale sopra 1',backwOff:'VIX/VIX3M torna sotto 1'};
+const monday=ms=>{const d=new Date(ms);const k=(d.getUTCDay()+6)%7;d.setUTCDate(d.getUTCDate()-k);return d.toISOString().slice(0,10)};
+function weeklyMap(points){const m=new Map();for(const [ms,v] of points)m.set(monday(ms),v);return m}
+function ema(a,len){const k=2/(len+1),o=[a[0]];for(let i=1;i<a.length;i++)o.push(a[i]*k+o[i-1]*(1-k));return o}
+const RV_LEN=20; // sedute per la volatilità realizzata
+// una chiusura per giorno (Yahoo a volte aggiunge un secondo punto per la seduta in corso: vince l'ultimo)
+function dailyByDate(points){const m=new Map();for(const p of points)m.set(new Date(p[0]).toISOString().slice(0,10),p);return [...m.values()].sort((a,b)=>a[0]-b[0])}
+// volatilità realizzata: dev. std campionaria delle ultime 20 variazioni logaritmiche giornaliere, annualizzata (√252), in %;
+// per ogni settimana vale quella dell'ultima seduta della settimana
+function realizedWeekly(points){
+ const p=dailyByDate(points),m=new Map();
+ for(let i=RV_LEN;i<p.length;i++){
+  let s=0,s2=0;
+  for(let j=i-RV_LEN+1;j<=i;j++){const r=Math.log(p[j][1]/p[j-1][1]);s+=r;s2+=r*r}
+  const mu=s/RV_LEN,v=(s2-RV_LEN*mu*mu)/(RV_LEN-1);
+  m.set(monday(p[i][0]),100*Math.sqrt(Math.max(v,0)*252));
+ }
+ return m;
+}
+function compute(vixMap,spxMap,now=Date.now(),v3Map=new Map(),rvMap=new Map()){
+ const keys=[...vixMap.keys()].sort(),n=keys.length;
+ const close=keys.map(k=>vixMap.get(k)),spx=keys.map(k=>spxMap.has(k)?spxMap.get(k):NaN),v3=keys.map(k=>v3Map.has(k)?v3Map.get(k):NaN);
+ const f=ema(close,12),s=ema(close,26),macd=f.map((x,i)=>x-s[i]);
+ const sig=macd.map((_,i)=>i>=8?macd.slice(i-8,i+1).reduce((a,b)=>a+b,0)/9:NaN);
+ const hist=macd.map((x,i)=>x-sig[i]);
+ const lastStart=Date.parse(keys[n-1]+'T00:00:00Z');
+ const prov=now<lastStart+4*864e5+22*36e5; // venerdì 22:00 UTC: il VIX chiude alle 16:15 di New York (21:15 UTC con l'ora solare), più margine per il ritardo dei dati
+ const def=(x,f)=>Number.isFinite(x)?f(x):null; // stato di un indicatore non ancora disponibile = null
+ const bars=keys.map((k,i)=>{
+  const b={i,date:k,vix:close[i],v3:v3[i],spx:spx[i],macd:macd[i],sig:sig[i],hist:hist[i],valid:i>=WARM,prov:prov&&i===n-1,col:null,ev:[],
+   chg:i?100*(close[i]/close[i-1]-1):NaN,ratio:close[i]/v3[i],bbMid:NaN,bbUp:NaN,bbLo:NaN,pct:NaN,rv:rvMap.has(k)?rvMap.get(k):NaN};
+  b.vrp=b.vix-b.rv; // premio di varianza: VIX meno volatilità realizzata
+  if(i>=BB_LEN-1){ // deviazione standard della popolazione, come ta.stdev di TradingView
+   const w=close.slice(i-BB_LEN+1,i+1),mu=w.reduce((a,c)=>a+c,0)/BB_LEN,sd=Math.sqrt(w.reduce((a,c)=>a+(c-mu)**2,0)/BB_LEN);
+   b.bbMid=mu;b.bbUp=mu+BB_K*sd;b.bbLo=mu-BB_K*sd;
+  }
+  if(i>=PCT_LEN){let c=0;for(let j=i-PCT_LEN;j<i;j++)if(close[j]<=close[i])c++;b.pct=100*c/PCT_LEN} // come ta.percentrank di TradingView
+  if(i>WARM){
+   const h=hist[i],p=hist[i-1];
+   b.col=h>p&&h>0?'aqua':h<p&&h>0?'blue':h<p&&h<=0?'red':h>p&&h<=0?'maroon':'yellow';
+  }
+  b.st={ge30:close[i]>=30,sopraBanda:def(b.bbUp,u=>close[i]>u),sottoBanda:def(b.bbLo,l=>close[i]<l),
+   pctAlto:def(b.pct,q=>q>=90),pctBasso:def(b.pct,q=>q<=10),backw:def(b.ratio,r=>r>1)};
+  return b;
+ });
+ for(let i=WARM+1;i<n;i++){
+  const b=bars[i],p=bars[i-1],e=b.ev,S=b.st,P=p.st;
+  if(b.macd<b.sig&&p.macd>=p.sig)e.push('crossDn');
+  if(b.macd>=b.sig&&p.macd<p.sig)e.push('crossUp');
+  if(b.macd<0&&p.macd>=0)e.push('zeroDn');
+  if(b.macd>=0&&p.macd<0)e.push('zeroUp');
+  if(b.col==='blue'&&p.col&&p.col!=='blue')e.push('blueFirst'); // p.col nullo = barra di riscaldamento, non un cambio di colore
+  if(b.col==='red'&&p.col&&p.col!=='red')e.push('redFirst');
+  // livello, Bollinger e VIX/VIX3M: l'evento richiede che la settimana prima l'indicatore esistesse già (false, non null)
+  if(S.ge30&&P.ge30===false)e.push('vix30');
+  if(b.chg>=30)e.push('balzo30');
+  if(S.sopraBanda&&P.sopraBanda===false)e.push('bandaSu');
+  if(S.sopraBanda===false&&P.sopraBanda)e.push('bandaRientro');
+  if(S.sottoBanda&&P.sottoBanda===false)e.push('bandaGiu');
+  if(S.backw&&P.backw===false)e.push('backwOn');
+  if(S.backw===false&&P.backw)e.push('backwOff');
+ }
+ for(let i=0;i<n;i++){ // percentile del premio di varianza sulle 52 settimane precedenti (come ta.percentrank), solo con storico completo
+  const b=bars[i];b.vrpPct=NaN;
+  if(i<PCT_LEN||!Number.isFinite(b.vrp))continue;
+  let c=0,ok=true;for(let j=i-PCT_LEN;j<i;j++){const x=bars[j].vrp;if(!Number.isFinite(x)){ok=false;break}if(x<=b.vrp)c++}
+  if(ok)b.vrpPct=100*c/PCT_LEN;
+ }
+ return bars;
+}
+function fwd(bars,i,h){
+ const j=i+h;if(j>=bars.length)return NaN;
+ if(bars[j].prov||bars[i].prov)return NaN;
+ const a=bars[i].spx,b=bars[j].spx;
+ return a>0&&b>0?100*(b/a-1):NaN;
+}
+function declust(idxs,gap){const o=[];let last=-1e9;for(const i of idxs)if(i-last>=gap){o.push(i);last=i}return o}
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:NaN}
+function median(a){if(!a.length)return NaN;const s=[...a].sort((x,y)=>x-y),m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2}
+function groupStats(bars,idxs,base){
+ const res={n:idxs.length};
+ for(const h of [1,4,13]){const a=idxs.map(i=>fwd(bars,i,h)).filter(Number.isFinite);res['m'+h]=mean(a);res['n'+h]=a.length}
+ const a4=idxs.map(i=>fwd(bars,i,4)).filter(Number.isFinite);
+ res.hit4=a4.length?100*a4.filter(x=>x>0).length/a4.length:NaN;
+ const ind=declust(idxs.filter(i=>Number.isFinite(fwd(bars,i,4))),4),b=ind.map(i=>fwd(bars,i,4));
+ res.nInd=b.length;
+ // t-stat contro la media della base, non contro zero: l'S&P sale in media, quindi contro zero quasi ogni gruppo sembrerebbe significativo
+ if(b.length>=3&&Number.isFinite(base)){const mu=mean(b),sd=Math.sqrt(b.reduce((x,y)=>x+(y-mu)**2,0)/(b.length-1));res.t=sd>0?(mu-base)/(sd/Math.sqrt(b.length)):NaN}else res.t=NaN;
+ res.med4=median(a4);
+ return res;
+}
+function allStats(bars){
+ const valid=bars.filter(b=>b.valid&&b.col).map(b=>b.i);
+ const rows=[],base=groupStats(bars,valid);
+ const add=(name,f,dom,b0)=>rows.push([name,groupStats(bars,dom.filter(i=>f(bars[i])),b0)]);
+ const has=k=>b=>b.ev.includes(k);
+ rows.push(['Tutte le settimane (base)',base]);
+ rows.push({sec:'MACD (CM_MacD_Ult_MTF)'});
+ for(const k of ['crossDn','crossUp','blueFirst','redFirst','zeroDn','zeroUp'])add(EVNAME[k],has(k),valid,base.m4);
+ for(const c of ['aqua','blue','red','maroon'])add('Stato '+COLNAME[c].split(' ·')[0],b=>b.col===c,valid,base.m4);
+ rows.push({sec:'Livello del VIX'});
+ add(EVNAME.vix30,has('vix30'),valid,base.m4);
+ add(EVNAME.balzo30,has('balzo30'),valid,base.m4);
+ const domP=valid.filter(i=>Number.isFinite(bars[i].pct)),baseP=groupStats(bars,domP).m4;
+ add('VIX nel 10% più alto delle 52 settimane',b=>b.st.pctAlto,domP,baseP);
+ add('VIX nel 10% più basso delle 52 settimane',b=>b.st.pctBasso,domP,baseP);
+ rows.push({sec:'Bande di Bollinger (20 settimane, 2 dev. std)'});
+ for(const k of ['bandaSu','bandaRientro','bandaGiu'])add(EVNAME[k],has(k),valid,base.m4);
+ const domR=valid.filter(i=>Number.isFinite(bars[i].ratio));
+ if(!domR.length){rows.push({sec:'VIX/VIX3M: dati del VIX3M non disponibili'});return rows}
+ rows.push({sec:'Struttura a termine VIX/VIX3M'});
+ const baseR=groupStats(bars,domR);
+ rows.push(['Base (settimane con VIX3M)',baseR]);
+ for(const k of ['backwOn','backwOff'])add(EVNAME[k],has(k),domR,baseR.m4);
+ add('Stato VIX/VIX3M sopra 1',b=>b.st.backw,domR,baseR.m4);
+ return rows;
+}
+function lastCross(bars){
+ for(let i=bars.length-1;i>WARM;i--){
+  const e=bars[i].ev;
+  if(e.includes('crossDn'))return {type:'MACD sotto Signal',date:bars[i].date,weeks:bars.length-1-i};
+  if(e.includes('crossUp'))return {type:'MACD sopra Signal',date:bars[i].date,weeks:bars.length-1-i};
+ }
+ return null;
+}
+function reading(b){
+ if(!b||!b.col)return 'Dati insufficienti.';
+ const above=b.macd>=b.sig;
+ const t={aqua:'Stress in accelerazione: il momentum settimanale del VIX è positivo e sta crescendo.',
+  blue:'Stress positivo ma in decelerazione: possibile primo segnale di attenuazione, da confermare.',
+  red:'Momentum del VIX negativo e in calo: volatilità in compressione.',
+  maroon:'Momentum negativo che risale: la compressione sta finendo.',
+  yellow:'Istogramma invariato rispetto alla settimana precedente.'}[b.col];
+ // sopra/sotto Signal è già implicito nel colore (istogramma = MACD − Signal); il segno del MACD aggiunge il livello
+ return t+(above?' MACD sopra Signal':' MACD sotto Signal')+(b.macd>=0?' e sopra zero (media breve del VIX sopra quella lunga).':' e sotto zero (media breve del VIX sotto quella lunga).');
+}
+// REGOLA: ogni serie, indicatore, stato o evento calcolato dalla pagina va anche nel CSV, per poterlo analizzare fuori dalla pagina.
+// Per aggiungere un indicatore al CSV basta una riga in csvColumns.
+const EVCOL={crossDn:'ev_macd_sotto_signal',crossUp:'ev_macd_sopra_signal',zeroDn:'ev_macd_sotto_zero',zeroUp:'ev_macd_sopra_zero',blueFirst:'ev_prima_blu',redFirst:'ev_prima_rossa',
+ vix30:'ev_vix_sopra_30',balzo30:'ev_balzo_vix_30',bandaSu:'ev_sopra_banda_alta',bandaRientro:'ev_rientro_banda_alta',bandaGiu:'ev_sotto_banda_bassa',
+ backwOn:'ev_vix_vix3m_sopra_1',backwOff:'ev_vix_vix3m_sotto_1'};
+function csvColumns(bars){
+ const flag=v=>v===null?'':v?1:0;
+ // evento valutabile: dopo il riscaldamento e, per VIX/VIX3M, con il rapporto disponibile in questa settimana e nella precedente
+ const evOk=(k,b)=>b.i>WARM&&(!k.startsWith('backw')||(b.st.backw!==null&&bars[b.i-1].st.backw!==null));
+ return [
+  ['settimana',b=>b.date],['provvisoria',b=>b.prov?1:0],['valida',b=>b.valid&&b.col?1:0],
+  ['vix',b=>b.vix],['vix3m',b=>b.v3],['spx',b=>b.spx],
+  ['vix_var_sett_pct',b=>b.chg],['vix_percentile_52s',b=>b.pct],
+  ['bb_media_20',b=>b.bbMid],['bb_alta',b=>b.bbUp],['bb_bassa',b=>b.bbLo],['vix_vix3m',b=>b.ratio],
+  ['vol_realizzata_20s',b=>b.rv],['premio_varianza',b=>b.vrp],['premio_varianza_percentile_52s',b=>b.vrpPct],
+  ['macd',b=>b.macd],['signal',b=>b.sig],['istogramma',b=>b.hist],['colore',b=>b.col||''],
+  ['stato_vix_sopra_30',b=>flag(b.st.ge30)],['stato_sopra_banda_alta',b=>flag(b.st.sopraBanda)],['stato_sotto_banda_bassa',b=>flag(b.st.sottoBanda)],
+  ['stato_percentile_alto',b=>flag(b.st.pctAlto)],['stato_percentile_basso',b=>flag(b.st.pctBasso)],['stato_vix_vix3m_sopra_1',b=>flag(b.st.backw)],
+  ...Object.keys(EVCOL).map(k=>[EVCOL[k],b=>evOk(k,b)?(b.ev.includes(k)?1:0):'']),
+  ['eventi',b=>b.ev.join('|')],
+  ['spx_fwd1',b=>fwd(bars,b.i,1)],['spx_fwd4',b=>fwd(bars,b.i,4)],['spx_fwd13',b=>fwd(bars,b.i,13)]
+ ];
+}
+function csvText(bars){
+ const cols=csvColumns(bars),cell=v=>typeof v==='number'?(Number.isFinite(v)?String(v).replace('.',','):''):String(v);
+ return [cols.map(c=>c[0]).join(';'),...bars.map(b=>cols.map(c=>cell(c[1](b))).join(';'))].join('\n');
+}
+//--PURE-END--
+
+let bars=[],rangeN=104,hover=-1,srcInfo=null;
+
+async function api(path){const c=new AbortController(),t=setTimeout(()=>c.abort(),60000);try{const r=await fetch(BASE+path,{cache:'no-store',signal:c.signal});const b=await r.json();if(!r.ok)throw Error(b.error||'HTTP '+r.status);return b}finally{clearTimeout(t)}}
+function parse(j){
+ const z=j?.chart?.result?.[0];if(!z)throw Error('Risposta Yahoo senza result');
+ const ts=z.timestamp||[],q=z.indicators?.quote?.[0]?.close||[],out=[];
+ for(let i=0;i<ts.length;i++)if(Number.isFinite(q[i])&&q[i]>0&&Number.isFinite(ts[i]))out.push([ts[i]*1000,q[i]]);
+ return out;
+}
+// Primo tentativo con date esplicite (period1/period2): con range=max o 20y Yahoo può non restituire barre settimanali,
+// e la pagina finiva su 10y. Se il Worker non inoltra period1/period2, si ripiega come prima.
+const ATTEMPTS=[['dal 1990','1wk'],['max','1wk'],['20y','1wk'],['10y','1wk'],['5y','1wk'],['2y','1d']];
+const query=(range,interval)=>(range==='dal 1990'?'period1=631152000&period2='+Math.floor(Date.now()/1000):'range='+range)+'&interval='+interval;
+async function loadSymbol(sym){
+ let err=Error('nessun tentativo riuscito');
+ for(const [range,interval] of ATTEMPTS){
+  try{
+   const pts=parse(await api('/v8/finance/chart/'+encodeURIComponent(sym)+'?'+query(range,interval)));
+   const m=weeklyMap(pts);if(m.size<60){err=Error('storico troppo breve ('+m.size+' barre)');continue}
+   const k=[...m.keys()].sort(),gaps=k.slice(1).map((x,i)=>(Date.parse(x)-Date.parse(k[i]))/864e5).sort((a,b)=>a-b);
+   if(gaps[gaps.length>>1]>10){err=Error('il Worker ha restituito barre non settimanali');continue}
+   return {map:m,range,interval};
+  }catch(e){err=e}
+ }
+ throw err;
+}
+// S&P giornaliero per la volatilità realizzata: stessi tentativi, ma barre giornaliere
+async function loadDaily(sym){
+ let err=Error('nessun tentativo riuscito');
+ for(const [range,interval] of [['dal 1990','1d'],['10y','1d'],['5y','1d'],['2y','1d']]){
+  try{
+   const pts=parse(await api('/v8/finance/chart/'+encodeURIComponent(sym)+'?'+query(range,interval)));
+   if(pts.length<100){err=Error('storico giornaliero troppo breve');continue}
+   const g=pts.slice(1).map((p,i)=>(p[0]-pts[i][0])/864e5).sort((a,b)=>a-b);
+   if(g[g.length>>1]>4){err=Error('il Worker ha restituito barre non giornaliere');continue}
+   return {pts,range,interval};
+  }catch(e){err=e}
+ }
+ throw err;
+}
+async function load(){
+ $('reload').disabled=true;$('csv').disabled=$('share').disabled=true;$('src').textContent='Caricamento…';
+ try{
+  // VIX3M e S&P giornaliero sono facoltativi: senza, la pagina funziona senza rapporto VIX/VIX3M e senza volatilità realizzata
+  const [v,s,v3,d]=await Promise.all([loadSymbol('^VIX'),loadSymbol('^GSPC'),loadSymbol('^VIX3M').catch(e=>({error:e})),loadDaily('^GSPC').catch(e=>({error:e}))]);
+  bars=compute(v.map,s.map,Date.now(),v3.map||new Map(),d.pts?realizedWeekly(d.pts):new Map());
+  srcInfo={range:v.range,interval:v.interval,spxRange:s.range,spxInterval:s.interval,v3:v3.map?'dal '+[...v3.map.keys()].sort()[0]:null, // il VIX3M esiste solo dal 2007 circa: mostra l'inizio reale
+   daily:d.pts?d.range+'/'+d.interval:null};
+  render();$('csv').disabled=$('share').disabled=false;
+ }catch(e){
+  $('src').innerHTML='<span class="warn">Errore nel caricamento: '+esc(e.message||e)+'</span>';
+  $('cards').innerHTML='';$('stats').innerHTML='';
+ }finally{$('reload').disabled=false}
+}
+
+function pillStyle(c){return 'background:'+COLORS[c]+(c==='blue'||c==='red'||c==='maroon'?';color:#fff':'')}
+const sub=t=>t?`<div class="sub">${t}</div>`:'';
+function readingLevel(b){
+ const parts=[`VIX ${b.vix>=30?'sopra':'sotto'} 30`];
+ if(Number.isFinite(b.bbUp))parts.push(b.st.sopraBanda?`sopra la banda di Bollinger alta (${fmt(b.bbUp)})`:b.st.sottoBanda?`sotto la banda di Bollinger bassa (${fmt(b.bbLo)})`:'dentro le bande di Bollinger');
+ if(Number.isFinite(b.pct))parts.push(`percentile ${fmt(b.pct,0)} sulle 52 settimane precedenti`);
+ let t='Livello: '+parts.join(', ')+'.';
+ if(Number.isFinite(b.ratio))t+=b.ratio>1?` VIX/VIX3M a ${fmt(b.ratio)}: struttura invertita, tipica dello stress acuto.`:` VIX/VIX3M a ${fmt(b.ratio)}: struttura normale (sotto 1).`;
+ return t;
+}
+function render(){
+ const last=bars[bars.length-1],first=bars[0],S=last.st;
+ const valid=bars.filter(b=>b.valid).length;
+ $('src').innerHTML=`Yahoo via Worker · VIX ${srcInfo.range}/${srcInfo.interval} · S&amp;P ${srcInfo.spxRange}/${srcInfo.spxInterval} · VIX3M ${srcInfo.v3||'<span class="warn">non disponibile</span>'} · S&amp;P giornaliero ${srcInfo.daily||'<span class="warn">non disponibile</span>'} · ${bars.length} barre settimanali dal ${first.date} · ultima barra ${last.date}${last.prov?' <span class="warn">(settimana in corso, provvisoria)</span>':''}`+(bars.length<300?' · <span class="warn">storico breve: statistiche solo indicative</span>':'');
+ const lc=lastCross(bars);
+ const bb=!Number.isFinite(last.bbUp)?'—':S.sopraBanda?'Sopra la banda alta':S.sottoBanda?'Sotto la banda bassa':'Dentro le bande';
+ const cards=[
+  ['VIX (chiusura settimana)',fmt(last.vix)+sub(Number.isFinite(last.chg)?sgn(last.chg,0)+'% sulla settimana':'')],
+  ['Percentile 52 settimane',fmt(last.pct,0)+sub('100 = massimo dell’anno')],
+  ['Bande di Bollinger (20 sett.)',bb+sub(Number.isFinite(last.bbUp)?`alta ${fmt(last.bbUp)} · bassa ${fmt(last.bbLo)}`:'')],
+  ['VIX/VIX3M',Number.isFinite(last.ratio)?fmt(last.ratio)+sub(last.ratio>1?'sopra 1: stress acuto':'sotto 1: struttura normale'):'—'+sub('VIX3M non disponibile')],
+  ['Premio di varianza',Number.isFinite(last.vrp)?sgn(last.vrp)+sub(`VIX − volatilità realizzata (${fmt(last.rv,1)})`+(Number.isFinite(last.vrpPct)?` · percentile ${fmt(last.vrpPct,0)} sull’anno`:'')):'—'+sub('manca l’S&amp;P giornaliero')],
+  ['MACD',sgn(last.macd)],
+  ['Signal (SMA 9)',sgn(last.sig)],
+  ['Istogramma',sgn(last.hist)],
+  ['Stato istogramma',last.col?`<span class="pill" style="${pillStyle(last.col)}">${COLNAME[last.col].split(' ·')[0]}</span>`:'—'],
+  ['Ultimo incrocio',lc?lc.type+sub(`${lc.date} · ${lc.weeks} sett. fa`):'—']
+ ];
+ $('cards').innerHTML=cards.map(c=>`<div class="card"><label>${c[0]}</label><div class="big">${c[1]}</div></div>`).join('')+
+  `<div class="card" style="grid-column:1/-1"><label>Lettura</label><div style="margin-top:6px">${esc(reading(last))}<br>${esc(readingLevel(last))}</div></div>`;
+ const rows=allStats(bars);
+ const cls=v=>Number.isFinite(v)?(v>0?'pos':v<0?'neg':''):'';
+ const pct=v=>Number.isFinite(v)?sgn(v)+'%':'—';
+ const tr=([name,s])=>`<tr><td>${esc(name)}</td><td class="num">${s.n}</td><td class="num">${s.nInd}</td><td class="num ${cls(s.m1)}">${pct(s.m1)}</td><td class="num ${cls(s.m4)}">${pct(s.m4)}</td><td class="num ${cls(s.m13)}">${pct(s.m13)}</td><td class="num">${Number.isFinite(s.hit4)?fmt(s.hit4,0)+'%':'—'}</td><td class="num">${fmt(s.t,2)}</td></tr>`;
+ $('stats').innerHTML=rows.map(r=>r.sec?`<tr class="sec"><td colspan="8"><span>${esc(r.sec)}</span></td></tr>`:tr(r)).join('');
+ const withSpx=bars.filter(b=>b.valid&&Number.isFinite(b.spx)).length;
+ $('statNote').textContent=`${valid} barre valide (dopo ${WARM} di riscaldamento), ${withSpx} con l’S&P 500. Un gruppo con meno di ~15 eventi indipendenti non permette conclusioni: guarda la colonna «Indip.» prima dei rendimenti.`;
+ draw();
+ simReset();
+}
+
+function draw(){
+ const cv=$('cv'),dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;
+ if(!W||!H)return;
+ cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+ const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+ const vis=bars.filter(b=>b.valid).slice(-rangeN),m=vis.length;
+ if(!m){g.fillStyle='#9aadc8';g.fillText('Dati insufficienti',12,24);return}
+ const hasR=vis.some(b=>Number.isFinite(b.ratio));
+ const padL=8,padR=46,padB=18,gap=14,avail=H-padB;
+ const vixH=Math.round(avail*(hasR?.30:.28)),rTop=vixH+gap,rH=hasR?Math.round(avail*.16):0,botTop=hasR?rTop+rH+gap:vixH+gap,botH=avail-botTop;
+ const pw=W-padL-padR,step=pw/m,X=i=>padL+(i+.5)*step,bw=Math.max(1,Math.min(14,step*.7));
+ g.font='11px system-ui,sans-serif';g.textBaseline='middle';
+ const path=(vals,Y)=>{g.beginPath();let on=false;vals.forEach((v,i)=>{if(!Number.isFinite(v)){on=false;return}const x=X(i),y=Y(v);on?g.lineTo(x,y):g.moveTo(x,y);on=true})};
+ const hline=(y,color,dash)=>{g.setLineDash(dash?[4,4]:[]);g.strokeStyle=color;g.lineWidth=1;g.beginPath();g.moveTo(padL,y);g.lineTo(W-padR,y);g.stroke();g.setLineDash([])};
+ // pannello VIX: bande di Bollinger e soglia 30
+ const vv=vis.flatMap(b=>[b.vix,b.bbUp,b.bbLo]).filter(Number.isFinite);
+ let lo=Math.min(...vv),hi=Math.max(...vv);const pad=(hi-lo)*.06||1;lo-=pad;hi+=pad;
+ const Yv=v=>vixH-(v-lo)/(hi-lo)*vixH;
+ hline(vixH+.5,'#223650');
+ g.beginPath();let started=false;
+ vis.forEach((b,i)=>{if(Number.isFinite(b.bbUp)){const x=X(i),y=Yv(b.bbUp);started?g.lineTo(x,y):g.moveTo(x,y);started=true}});
+ for(let i=m-1;i>=0;i--)if(Number.isFinite(vis[i].bbLo))g.lineTo(X(i),Yv(vis[i].bbLo));
+ if(started){g.closePath();g.fillStyle='rgba(93,134,192,.14)';g.fill()}
+ path(vis.map(b=>b.bbUp),Yv);g.strokeStyle='#5d86c0';g.lineWidth=1;g.stroke();
+ path(vis.map(b=>b.bbLo),Yv);g.stroke();
+ const vmax=Math.max(...vis.map(b=>b.vix)),vmin=Math.min(...vis.map(b=>b.vix));
+ if(30>lo&&30<hi){hline(Yv(30),'#ffd37a',true);if(Math.abs(Yv(30)-Yv(vmax))>11&&Math.abs(Yv(30)-Yv(vmin))>11){g.fillStyle='#ffd37a';g.textAlign='left';g.fillText('30',W-padR+5,Yv(30))}}
+ path(vis.map(b=>b.vix),Yv);g.strokeStyle='#eef5ff';g.lineWidth=1.5;g.stroke();
+ g.fillStyle='#9aadc8';g.textAlign='left';g.fillText(fmt(vmax,0),W-padR+5,Math.max(7,Yv(vmax)));g.fillText(fmt(vmin,0),W-padR+5,Math.min(vixH-7,Yv(vmin)));
+ g.fillText('VIX',padL+2,8);
+ // pannello VIX/VIX3M: rosso dove supera 1
+ if(hasR){
+  const rv=vis.map(b=>b.ratio).filter(Number.isFinite);
+  let rlo=Math.min(1,...rv),rhi=Math.max(1,...rv);const rp=(rhi-rlo)*.1||.05;rlo-=rp;rhi+=rp;
+  const Yr=v=>rTop+rH-(v-rlo)/(rhi-rlo)*rH;
+  g.fillStyle='rgba(255,77,77,.4)';
+  vis.forEach((b,i)=>{if(b.ratio>1){const y1=Yr(b.ratio);g.fillRect(X(i)-step/2,y1,step,Yr(1)-y1)}});
+  hline(Yr(1),'#ffd37a',true);
+  path(vis.map(b=>b.ratio),Yr);g.strokeStyle='#c9a7ff';g.lineWidth=1.5;g.stroke();
+  g.fillStyle='#9aadc8';g.textAlign='left';g.fillText('1',W-padR+5,Yr(1));g.fillText('VIX/VIX3M',padL+2,rTop+8);
+  hline(rTop+rH+.5,'#223650');
+ }
+ // pannello MACD
+ let mn=Math.min(0,...vis.map(b=>Math.min(b.macd,b.sig,b.hist))),mx=Math.max(0,...vis.map(b=>Math.max(b.macd,b.sig,b.hist)));
+ const pp=(mx-mn)*.08||1;mn-=pp;mx+=pp;const Ym=v=>botTop+botH-(v-mn)/(mx-mn)*botH;
+ g.strokeStyle='#223650';g.lineWidth=1;
+ for(let k=0;k<=4;k++){const v=mn+(mx-mn)*k/4,y=Ym(v);g.beginPath();g.moveTo(padL,y);g.lineTo(W-padR,y);g.stroke();g.fillStyle='#9aadc8';g.textAlign='left';g.fillText(fmt(v,1),W-padR+5,y)}
+ g.strokeStyle='#ffffff';g.lineWidth=1.5;g.beginPath();g.moveTo(padL,Ym(0));g.lineTo(W-padR,Ym(0));g.stroke();
+ vis.forEach((b,i)=>{g.fillStyle=COLORS[b.col||'yellow'];const y0=Ym(0),y1=Ym(b.hist);g.fillRect(X(i)-bw/2,Math.min(y0,y1),bw,Math.max(1,Math.abs(y1-y0)))});
+ path(vis.map(b=>b.sig),Ym);g.strokeStyle='#ffe14d';g.lineWidth=1.8;g.stroke();
+ for(let i=1;i<m;i++){g.strokeStyle=vis[i].macd>=vis[i].sig?'#7CFC00':'#ff4d4d';g.lineWidth=2.6;g.beginPath();g.moveTo(X(i-1),Ym(vis[i-1].macd));g.lineTo(X(i),Ym(vis[i].macd));g.stroke()}
+ vis.forEach((b,i)=>{if(b.ev.includes('crossDn')||b.ev.includes('crossUp')){g.fillStyle=b.macd>=b.sig?'#7CFC00':'#ff4d4d';g.beginPath();g.arc(X(i),Ym(b.sig),4,0,7);g.fill()}});
+ g.fillStyle='#9aadc8';g.textAlign='left';g.fillText('MACD',padL+2,botTop+8);
+ // asse X
+ g.fillStyle='#9aadc8';g.textBaseline='alphabetic';
+ const labels=Math.min(6,m);for(let k=0;k<labels;k++){const i=Math.round(k*(m-1)/Math.max(1,labels-1));const d=vis[i].date;g.textAlign=k?'center':'left';g.fillText(d.slice(5,7)+'/'+d.slice(2,4),k?X(i):padL,H-4)}
+ // cursore
+ if(hover>=0&&hover<m){g.strokeStyle='rgba(255,255,255,.35)';g.lineWidth=1;g.beginPath();g.moveTo(X(hover),0);g.lineTo(X(hover),avail);g.stroke()}
+ cv._vis=vis;cv._geo={padL,pw,m,step};
+}
+function tipAt(clientX){
+ const cv=$('cv'),r=cv.getBoundingClientRect(),geo=cv._geo,vis=cv._vis;if(!geo)return;
+ const i=Math.max(0,Math.min(geo.m-1,Math.floor((clientX-r.left-geo.padL)/geo.step)));
+ hover=i;const b=vis[i];
+ const p=[`<b>${b.date}</b>`,`VIX ${fmt(b.vix)}${Number.isFinite(b.chg)?' ('+sgn(b.chg,0)+'%)':''}`];
+ if(Number.isFinite(b.bbUp))p.push(`bande ${fmt(b.bbLo)}–${fmt(b.bbUp)}`);
+ if(Number.isFinite(b.pct))p.push(`percentile ${fmt(b.pct,0)}`);
+ if(Number.isFinite(b.ratio))p.push(`VIX/VIX3M ${fmt(b.ratio)}`);
+ p.push(`MACD ${sgn(b.macd)}`,`Signal ${sgn(b.sig)}`,`Istogramma ${sgn(b.hist)}`,b.col?COLNAME[b.col]:'—');
+ if(b.ev.length)p.push('eventi: '+b.ev.map(k=>EVNAME[k]).join(', '));
+ const f4=fwd(bars,b.i,4);if(Number.isFinite(f4))p.push(`SPX +4s ${sgn(f4)}%`);
+ $('tip').innerHTML=p.join(' · ')+(b.prov?' · <span class="warn">provvisoria</span>':'');
+ draw();
+}
+const cvEl=$('cv');
+cvEl.addEventListener('pointermove',e=>tipAt(e.clientX));
+cvEl.addEventListener('pointerdown',e=>{tipAt(e.clientX);const v=cvEl._vis;if(v&&hover>=0&&v[hover])simFromChart(v[hover].i)}); // il tocco sceglie anche la settimana da giocare
+cvEl.addEventListener('pointerleave',()=>{hover=-1;draw()});
+$('ranges').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;rangeN=+b.dataset.n;[...$('ranges').children].forEach(x=>x.classList.toggle('on',x===b));hover=-1;draw()});
+window.addEventListener('resize',()=>{if(bars.length)draw()});
+$('reload').onclick=load;
+const CSVNAME='vix_settimanale.csv';
+function csvFile(){return new File([csvText(bars)],CSVNAME,{type:'text/csv'})}
+function download(file){
+ const url=URL.createObjectURL(file),a=document.createElement('a');
+ a.href=url;a.download=CSVNAME;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+}
+$('csv').onclick=()=>download(csvFile());
+// Telefono: menu di condivisione (Salva su File, Mail, WhatsApp…), utile dove il download diretto è bloccato. Compare solo se il browser lo supporta.
+try{$('share').hidden=!(navigator.canShare&&navigator.canShare({files:[new File(['x'],CSVNAME,{type:'text/csv'})]}))}catch(e){}
+$('share').onclick=async()=>{
+ const f=csvFile();
+ try{await navigator.share({files:[f],title:'VIX · settimanale'})}
+ catch(e){if(e.name!=='AbortError')download(f)} // annullato dall'utente: niente; altri errori: ripiego sul download
+};
+// ---------- Simulazione: il VIX come l'UR di osu! (grafica originale, ispirata alle meccaniche del gioco) ----------
+// 1 punto di VIX = 1 ms di errore tipico, quindi UR atteso = VIX × 10; i colpi hanno l'errore della volatilità realizzata.
+let RVRATIO=.8,RVSRC='ipotesi';
+const sim=(()=>{
+ const cv=$('osu'),info=$('simInfo'),btn=$('simPlay');
+ const W300=32,W100=76,W50=120,PRE=600; // finestre dei giudizi come OD 8 e anticipo del cerchio di avvicinamento, in ms
+ const COLS=['#ff7eb6','#7ec8ff','#b98cff','#6fe3c1'],JC={300:'#66ccff',100:'#8ee06a',50:'#ffc44d',miss:'#ff5c5c'};
+ const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+ const gauss=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
+ let playing=!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches),visible=!('IntersectionObserver' in window),raf=0,last=0,clock=0;
+ let S=null,notes=[],pops=[],ticks=[],errs=[],cnt={300:0,100:0,50:0,miss:0},prof=[],nextT=0,left=0,num=0,colIx=0,pos=null,ang=0,cur=null,trail=[],brk=null;
+ const geo=()=>{const W=cv.clientWidth,H=cv.clientHeight,top=42,bot=H-44,r=clamp(Math.min(W,bot-top)*.055,12,24);return {W,H,top,bot,r,x0:r+8,x1:W-r-8,y0:top+72+r,y1:bot-r-6}};
+ function set(i,label){
+  const b=bars[i];if(!b)return;
+  const est=!Number.isFinite(b.rv);
+  S={label,date:b.date,vix:b.vix,v3:b.v3,ratio:b.ratio,est,rv:est?RVRATIO*b.vix:b.rv,vrpPct:b.vrpPct};
+  S.vrp=S.vix-S.rv; // premio di varianza: quanto la scommessa della lobby supera la play
+  S.gap=clamp(400-5.5*S.vix,85,380); // più alto il VIX, più fitto il ritmo: oltre 30 diventa una stream
+  S.jump=clamp(22+1.2*S.vix,40,115); // e più larghi i salti
+  S.breaks=!(S.ratio>1)&&S.vix<25;   // break solo con VIX basso e struttura normale (VIX/VIX3M non sopra 1)
+  notes=[];pops=[];ticks=[];errs=[];cnt={300:0,100:0,50:0,miss:0};nextT=clock+500;left=0;num=0;pos=null;brk=null;trail=[];cur=null;
+  prof=Array.from({length:40},()=>.7+.6*Math.random());
+  const rTxt=S.est?`${fmt(S.rv,1)} (stimata: ${fmt(RVRATIO*100,0)}% del VIX, ${RVSRC})`:fmt(S.rv,1);
+  info.innerHTML=`<b>${esc(label)}</b> · settimana del ${S.date} · VIX ${fmt(S.vix)} → UR atteso ${Math.round(S.vix*10)} · volatilità realizzata ${rTxt} → UR della play ≈ ${Math.round(S.rv*10)} · premio di varianza ${sgn(S.vrp,1)}${S.est?' (stimato)':''}${Number.isFinite(S.vrpPct)?`, percentile ${fmt(S.vrpPct,0)} sull’anno`:''} · `+
+   (Number.isFinite(S.ratio)?`VIX/VIX3M ${fmt(S.ratio)}: ${S.ratio>1?'niente break, sei nel pezzo più duro della mappa':'sezione più facile della media della mappa'}`:'VIX3M non disponibile');
+  draw();
+ }
+ function spawn(until){
+  const G=geo();
+  while(nextT<until){
+   if(left<=0){ // nuova stream; tra una stream e l'altra, a volte un break
+    if(num>0){if(S.breaks&&Math.random()<.5){brk={t0:nextT,t1:nextT+1600};nextT+=1600}else nextT+=S.gap*2}
+    left=Math.round(4+S.vix/8+Math.random()*6);num=0;colIx=(colIx+1)%COLS.length;
+   }
+   if(!pos){pos={x:(G.x0+G.x1)/2,y:(G.y0+G.y1)/2};ang=Math.random()*6.283}
+   ang+=(Math.random()-.5)*1.6;
+   const d=S.jump*(.6+.8*Math.random())*clamp(G.W/480,.55,1.2);
+   let x=pos.x+Math.cos(ang)*d,y=pos.y+Math.sin(ang)*d;
+   if(x<G.x0||x>G.x1){ang=Math.PI-ang;x=clamp(x,G.x0,G.x1)}
+   if(y<G.y0||y>G.y1){ang=-ang;y=clamp(y,G.y0,G.y1)}
+   pos={x,y};
+   notes.push({t:nextT,x,y,n:++num,c:COLS[colIx],err:gauss()*S.rv}); // errore in ms: deviazione standard = volatilità realizzata
+   left--;nextT+=S.gap;
+  }
+ }
+ function judge(){
+  for(const n of notes){
+   const a=Math.abs(n.err);
+   if(a<=W50&&clock>=n.t+n.err){
+    const k=a<=W300?300:a<=W100?100:50;
+    n.done=true;cnt[k]++;errs.push(n.err);if(errs.length>80)errs.shift();
+    pops.push({x:n.x,y:n.y,k,t:clock});ticks.push({e:n.err,k,t:clock});
+   }else if(a>W50&&clock>=n.t+W50){
+    n.done=true;cnt.miss++;pops.push({x:n.x,y:n.y,k:'miss',t:clock});ticks.push({e:Math.sign(n.err)*W50,k:'miss',t:clock});
+   }
+  }
+  notes=notes.filter(n=>!n.done);pops=pops.filter(p=>clock-p.t<500);ticks=ticks.filter(t=>clock-t.t<4000);
+ }
+ function step(dt){
+  clock+=dt;spawn(clock+PRE+1500);judge();
+  const nx=notes.find(n=>n.t-clock<PRE); // il cursore va verso il prossimo cerchio
+  if(nx){if(!cur)cur={x:nx.x,y:nx.y};const k=Math.min(1,dt/90);cur={x:cur.x+(nx.x-cur.x)*k,y:cur.y+(nx.y-cur.y)*k}}
+  if(cur){trail.push({x:cur.x,y:cur.y});if(trail.length>10)trail.shift()}
+ }
+ function draw(){
+  const dpr=window.devicePixelRatio||1,G=geo(),{W,H,r}=G;if(!W||!H)return;
+  if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr)}
+  const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+  g.font='11px system-ui,sans-serif';g.textBaseline='middle';g.textAlign='left';
+  if(!S){g.fillStyle='#9aadc8';g.fillText('In attesa dei dati…',12,20);return}
+  // striscia: la sezione attuale (VIX, 30 giorni) contro la media della mappa (VIX3M, 3 mesi)
+  g.fillStyle='#9aadc8';
+  if(Number.isFinite(S.v3)){
+   g.fillText(`sezione attuale (VIX) ${fmt(S.vix,1)} · media della mappa (VIX3M) ${fmt(S.v3,1)}`,8,9);
+   const n=prof.length,bw=(W-16)/n,hmax=Math.max(S.vix,S.v3*1.3)*1.05,ci=Math.floor((clock/30000%1)*n),Y=v=>36-v/hmax*18;
+   for(let k=0;k<n;k++){const v=k===ci?S.vix:prof[k]*S.v3;g.fillStyle=k===ci?(S.vix>S.v3?'#ff5c5c':'#66ccff'):'#2b4a72';g.fillRect(8+k*bw+1,Y(v),Math.max(1,bw-2),36-Y(v))}
+   g.setLineDash([3,3]);g.strokeStyle='#ffd37a';g.lineWidth=1;g.beginPath();g.moveTo(8,Y(S.v3));g.lineTo(W-8,Y(S.v3));g.stroke();g.setLineDash([]);
+  }else g.fillText('VIX3M non disponibile: niente confronto tra sezione e mappa',8,9);
+  // campo di gioco
+  g.fillStyle='#0d1c31';g.fillRect(0,G.top,W,G.bot-G.top);
+  for(let j=notes.length-1;j>=0;j--){ // i cerchi più vicini nel tempo restano sopra
+   const n=notes[j],dtA=n.t-clock;if(dtA>PRE)continue;
+   g.globalAlpha=clamp((PRE-dtA)/150,0,1);
+   if(dtA>0){g.strokeStyle=n.c;g.lineWidth=2;g.beginPath();g.arc(n.x,n.y,r*(1+2.2*dtA/PRE),0,6.283);g.stroke()} // cerchio di avvicinamento
+   g.fillStyle=n.c;g.beginPath();g.arc(n.x,n.y,r,0,6.283);g.fill();g.strokeStyle='#fff';g.lineWidth=2.5;g.stroke();
+   g.fillStyle='#fff';g.font=`700 ${Math.round(r*.9)}px system-ui,sans-serif`;g.textAlign='center';g.fillText(n.n,n.x,n.y+1);
+  }
+  g.globalAlpha=1;
+  for(const p of pops){const a=(clock-p.t)/500;g.globalAlpha=1-a;g.fillStyle=JC[p.k];g.font='700 14px system-ui,sans-serif';g.textAlign='center';g.fillText(p.k==='miss'?'×':p.k,p.x,Math.max(G.top+78,p.y-r-6-a*10))} // non sopra i numeri in alto
+  trail.forEach((t,k)=>{g.globalAlpha=(k+1)/trail.length*.35;g.fillStyle='#ffd37a';g.beginPath();g.arc(t.x,t.y,3,0,6.283);g.fill()});
+  g.globalAlpha=1;
+  if(cur){g.fillStyle='#ffd37a';g.beginPath();g.arc(cur.x,cur.y,6,0,6.283);g.fill();g.strokeStyle='#fff';g.lineWidth=1.5;g.stroke()}
+  if(brk&&clock>=brk.t0&&clock<brk.t1){const p=(clock-brk.t0)/(brk.t1-brk.t0),cy=(G.top+G.bot)/2;g.fillStyle='rgba(238,245,255,.85)';g.font='700 22px system-ui,sans-serif';g.textAlign='center';g.fillText('Break',W/2,cy);g.fillStyle='#ffd37a';g.fillRect(W/2-60,cy+18,120*(1-p),3)}
+  // HUD: UR atteso (VIX) contro UR della play (volatilità realizzata)
+  let ur=NaN;if(errs.length>5){const m=errs.reduce((a,e)=>a+e,0)/errs.length;ur=10*Math.sqrt(errs.reduce((a,e)=>a+(e-m)**2,0)/(errs.length-1))}
+  // premio di varianza: due barre (scommessa e play); il pezzo in più è il premio, dorato se la lobby ha esagerato, rosso se ha sottovalutato
+  const urE=S.vix*10,urP=S.rv*10,plus=S.vrp>=0,pc=plus?'#ffd37a':'#ff5c5c',y1=G.top+12,y2=y1+16;
+  const xb=clamp(W*.34,118,160),sb=(W-10-xb)/(Math.max(urE,urP,Number.isFinite(ur)?ur:0)*1.08);
+  g.font='12px system-ui,sans-serif';g.textAlign='left';
+  g.fillStyle='#eef5ff';g.fillText(`UR atteso ${Math.round(urE)}`,8,y1);
+  g.fillStyle='#66ccff';g.fillText(`UR della play ${Math.round(urP)}`,8,y2);
+  g.fillStyle='rgba(238,245,255,.85)';g.fillRect(xb,y1-4,Math.min(urE,urP)*sb,8);
+  g.fillStyle='#66ccff';g.fillRect(xb,y2-4,Math.min(urE,urP)*sb,8);
+  g.fillStyle=pc;if(plus)g.fillRect(xb+urP*sb,y1-4,(urE-urP)*sb,8);else g.fillRect(xb+urE*sb,y2-4,(urP-urE)*sb,8);
+  if(Number.isFinite(ur)){g.fillStyle='#fff';g.fillRect(xb+ur*sb-1,y2-7,2,14)} // lineetta: UR misurato dal vivo sui colpi
+  g.fillStyle=pc;
+  g.fillText(`premio di varianza ${sgn(S.vrp,1)}${S.est?' (stimato)':''}${Number.isFinite(S.vrpPct)?` · percentile ${fmt(S.vrpPct,0)} sull’anno`:''}`,8,y2+16);
+  g.fillText(plus?'la lobby ha esagerato: il NoFail era caro':'la lobby ha sottovalutato: il NoFail era regalato',8,y2+31);
+  // conteggi e barra degli errori di timing
+  const tot=cnt[300]+cnt[100]+cnt[50]+cnt.miss,acc=tot?100*(300*cnt[300]+100*cnt[100]+50*cnt[50])/(300*tot):NaN;
+  g.font='11px system-ui,sans-serif';g.fillStyle='#9aadc8';g.textAlign='left';if(W>=560)g.fillText('errori di timing',8,G.bot+11); // sul telefono non c'è spazio
+  g.textAlign='right';g.fillText(`300: ${cnt[300]} · 100: ${cnt[100]} · 50: ${cnt[50]} · ×: ${cnt.miss} · precisione ${Number.isFinite(acc)?fmt(acc,1)+'%':'—'}`,W-8,G.bot+11);
+  const mw=Math.min(W-24,340),cx=W/2,my=H-14,sc=(mw/2)/W50,zone=(w,c)=>{g.fillStyle=c;g.fillRect(cx-w*sc,my-3,2*w*sc,6)};
+  zone(W50,'#7a5a1f');zone(W100,'#3f6e2a');zone(W300,'#2a5f86');
+  // parentesi: ±1 dev. std della scommessa (VIX ms, bianca) e della play (volatilità realizzata ms, azzurra); in mezzo il premio
+  const sE=Math.min(S.vix,W50)*sc,sP=Math.min(S.rv,W50)*sc,lo=Math.min(sE,sP),hi=Math.max(sE,sP);
+  g.fillStyle=plus?'rgba(255,211,122,.6)':'rgba(255,92,92,.6)';g.fillRect(cx-hi,my-5,hi-lo,10);g.fillRect(cx+lo,my-5,hi-lo,10);
+  const br=(s,c)=>{g.strokeStyle=c;g.lineWidth=2;g.beginPath();for(const d of [-1,1]){g.moveTo(cx+d*(s-4),my-11);g.lineTo(cx+d*s,my-11);g.lineTo(cx+d*s,my+11);g.lineTo(cx+d*(s-4),my+11)}g.stroke()};
+  br(sE,'#eef5ff');br(sP,'#66ccff');
+  if(W>=560){g.font='11px system-ui,sans-serif';g.textAlign='left';g.fillStyle='#eef5ff';g.fillText('scommessa',8,my);g.fillStyle='#66ccff';g.fillText('play',72,my)}
+  g.fillStyle='#fff';g.fillRect(cx-1,my-9,2,18);
+  for(const t of ticks){g.globalAlpha=Math.max(0,1-(clock-t.t)/4000);g.fillStyle=JC[t.k];g.fillRect(cx+t.e*sc-1,my-8,2,16)}
+  g.globalAlpha=1;
+ }
+ function loop(ts){
+  raf=0;if(!playing||!visible||document.hidden||!S)return;
+  const dt=last?Math.min(50,ts-last):16;last=ts;step(dt);draw();
+  raf=requestAnimationFrame(loop);
+ }
+ function kick(){if(!raf&&playing&&visible&&!document.hidden&&S){last=0;raf=requestAnimationFrame(loop)}}
+ if('IntersectionObserver' in window)new IntersectionObserver(es=>{visible=es[0].isIntersecting;kick()}).observe(cv); // anima solo quando è sullo schermo
+ document.addEventListener('visibilitychange',kick);
+ window.addEventListener('resize',()=>{if(!playing)draw()});
+ btn.textContent=playing?'Pausa':'Gioca';
+ btn.onclick=()=>{playing=!playing;btn.textContent=playing?'Pausa':'Gioca';if(playing)kick();else draw()};
+ draw();
+ return {set:(i,l)=>{set(i,l);kick()}};
+})();
+function simPick(k){
+ const v=bars.filter(b=>b.valid);if(!v.length)return null;
+ if(k==='chill')return v.reduce((a,b)=>b.vix<a.vix?b:a).i;
+ if(k==='mash')return v.reduce((a,b)=>b.vix>a.vix?b:a).i;
+ for(let j=v.length-1;j>=0;j--){
+  if(k==='death'&&v[j].vix>=30)return v[j].i;
+  if(k==='norm'&&Math.abs(v[j].vix-20)<=1&&!(v[j].ratio>1))return v[j].i;
+ }
+ return v[v.length-1].i; // «Ultima», o nessuna settimana adatta
+}
+function simReset(){
+ const w=bars.filter(b=>Number.isFinite(b.rv)&&b.vix>0).map(b=>b.rv/b.vix);
+ if(w.length>=20){RVRATIO=median(w);RVSRC='la mediana dei tuoi dati'}else{RVRATIO=.8;RVSRC='ipotesi'}
+ [...$('simWeeks').querySelectorAll('button[data-k]')].forEach(x=>x.classList.toggle('on',x.dataset.k==='last'));
+ const i=simPick('last');if(i!=null)sim.set(i,'Ultima settimana');
+}
+function simFromChart(i){[...$('simWeeks').querySelectorAll('button[data-k]')].forEach(x=>x.classList.remove('on'));sim.set(i,'Settimana scelta nel grafico')}
+$('simWeeks').addEventListener('click',e=>{
+ const b=e.target.closest('button[data-k]');if(!b||!bars.length)return;
+ const i=simPick(b.dataset.k);if(i==null)return;
+ [...$('simWeeks').querySelectorAll('button[data-k]')].forEach(x=>x.classList.toggle('on',x===b));
+ sim.set(i,b.dataset.label);
+});
+
+load();
+</script>
+</body>
+</html>
